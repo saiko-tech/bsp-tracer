@@ -1,6 +1,7 @@
 run:
   deadline: 5m
   allow-parallel-runners: true
+  go: '1.17'
 
 linters:
   enable-all: true
@@ -34,7 +35,8 @@ issues:
 
 linters-settings:
   gci:
-    local-prefixes: github.com/saiko-tech/bsp-tracer
+    sections:
+      - prefix(github.com/saiko-tech/bsp-tracer)
   gomnd:
     ignored-numbers:
       - '0666'
