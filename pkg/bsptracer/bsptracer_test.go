@@ -31,4 +31,5 @@ func TestLoadMap(t *testing.T) {
 	assert.Equal(t, 23221, len(m.surfaces))
 	assert.Equal(t, 185200, len(m.surfEdges))
 	assert.Equal(t, 48496, len(m.vertices))
+	assert.Equal(t, 46442, len(m.polygons))
 }

@@ -16,8 +16,11 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
+const maxSurfinfoVerts = 32
+
 // Map is a loaded BSP map.
 type Map struct {
+	// loaded by bsp package
 	brushes     []brush.Brush
 	brushSides  []brushside.BrushSide
 	edges       [][2]uint16
@@ -29,6 +32,9 @@ type Map struct {
 	surfaces    []face.Face
 	surfEdges   []int32
 	vertices    []mgl32.Vec3
+
+	// constructed by this package
+	polygons []polygon
 }
 
 // LoadMap loads a BSP map from a file.
@@ -37,7 +43,7 @@ func LoadMap(directory, mapName string) (*Map, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Map{
+	m := &Map{
 		brushes:     bspfile.Lump(bsp.LumpBrushes).(*lumps.Brush).GetData(),
 		brushSides:  bspfile.Lump(bsp.LumpBrushSides).(*lumps.BrushSide).GetData(),
 		edges:       bspfile.Lump(bsp.LumpEdges).(*lumps.Edge).GetData(),
@@ -49,5 +55,55 @@ func LoadMap(directory, mapName string) (*Map, error) {
 		surfaces:    bspfile.Lump(bsp.LumpFaces).(*lumps.Face).GetData(),
 		surfEdges:   bspfile.Lump(bsp.LumpSurfEdges).(*lumps.Surfedge).GetData(),
 		vertices:    bspfile.Lump(bsp.LumpVertexes).(*lumps.Vertex).GetData(),
-	}, nil
+	}
+	m.parsePolygons()
+	return m, nil
+}
+
+func (m *Map) parsePolygons() {
+	m.polygons = make([]polygon, len(m.surfaces), 2*len(m.surfaces))
+
+	for _, surface := range m.surfaces {
+		firstEdge := int(surface.FirstEdge)
+		numEdges := int(surface.NumEdges)
+
+		if numEdges < 3 || numEdges > maxSurfinfoVerts {
+			continue
+		}
+		if surface.TexInfo <= 0 {
+			continue
+		}
+
+		var polygon polygon
+		var edge mgl32.Vec3
+
+		for i := 0; i < numEdges; i++ {
+			edgeIndex := m.surfEdges[firstEdge+i]
+			if edgeIndex >= 0 {
+				edge = m.vertices[m.edges[edgeIndex][0]]
+			} else {
+				edge = m.vertices[m.edges[-edgeIndex][1]]
+			}
+			polygon.verts[i] = edge
+		}
+
+		polygon.numVerts = numEdges
+		polygon.plane.origin = m.planes[surface.Planenum].Normal
+		polygon.plane.distance = m.planes[surface.Planenum].Distance
+		m.polygons = append(m.polygons, polygon)
+	}
+}
+
+type polygon struct {
+	verts      [maxSurfinfoVerts]mgl32.Vec3
+	numVerts   int
+	plane      vplane
+	edgePlanes []vplane
+	vec2d      [maxSurfinfoVerts]mgl32.Vec3
+	skip       int
+}
+
+type vplane struct {
+	origin   mgl32.Vec3
+	distance float32
 }
