@@ -13,25 +13,48 @@ type testCast struct {
 	trace    Trace
 }
 
+//nolint:gochecknoglobals
 var testCasts = []testCast{
 	// A site -> A site, open
-	{mgl32.Vec3{-12, 1444, 1751}, mgl32.Vec3{-233, 1343, 1751}, true,
-		Trace{true, true, 1, 0, mgl32.Vec3{-233, 1343, 1751}, 0, nil, 0}},
+	{
+		mgl32.Vec3{-12, 1444, 1751},
+		mgl32.Vec3{-233, 1343, 1751},
+		true,
+		Trace{AllSolid: true, StartSolid: true, Fraction: 1, EndPos: mgl32.Vec3{-233, 1343, 1751}},
+	},
 	// T spawn -> A site
-	{mgl32.Vec3{3306, 431, 1723}, mgl32.Vec3{-233, 1343, 1751}, false,
-		Trace{true, true, 0, 1, mgl32.Vec3{3306, 431, 1723}, 1, nil, 7}},
+	{
+		mgl32.Vec3{3306, 431, 1723},
+		mgl32.Vec3{-233, 1343, 1751},
+		false,
+		Trace{AllSolid: true, StartSolid: true, FractionLeftSolid: 1, EndPos: mgl32.Vec3{3306, 431, 1723}, Contents: 1, NumBrushSides: 7},
+	},
 	// T spawn -> T spawn
-	{mgl32.Vec3{3306, 431, 1723}, mgl32.Vec3{3303, 431, 1723}, true,
-		Trace{true, true, 1, 0, mgl32.Vec3{3303, 431, 1723}, 0, nil, 0}},
+	{
+		mgl32.Vec3{3306, 431, 1723},
+		mgl32.Vec3{3303, 431, 1723},
+		true,
+		Trace{AllSolid: true, StartSolid: true, Fraction: 1, EndPos: mgl32.Vec3{3303, 431, 1723}},
+	},
 	// through door
-	{mgl32.Vec3{207, 1948, 1751}, mgl32.Vec3{259, 2251, 1752}, true,
-		Trace{true, true, 1, 0, mgl32.Vec3{259, 2251, 1752}, 0, nil, 0}},
+	{
+		mgl32.Vec3{207, 1948, 1751},
+		mgl32.Vec3{259, 2251, 1752},
+		true,
+		Trace{AllSolid: true, StartSolid: true, Fraction: 1, EndPos: mgl32.Vec3{259, 2251, 1752}},
+	},
 	// through mid box
-	{mgl32.Vec3{-94, 452, 1677}, mgl32.Vec3{138, 396, 1677}, true,
-		Trace{true, true, 1, 0, mgl32.Vec3{138, 396, 1677}, 0, nil, 0}},
+	{
+		mgl32.Vec3{-94, 452, 1677},
+		mgl32.Vec3{138, 396, 1677},
+		true,
+		Trace{AllSolid: true, StartSolid: true, Fraction: 1, EndPos: mgl32.Vec3{138, 396, 1677}},
+	},
 }
 
 func TestBspTracer(t *testing.T) {
+	t.Parallel()
+
 	// test loading nonexistent file
 	m, err := LoadMap("../../testdata", "does_not_exist.bsp")
 	assert.Nil(t, m)

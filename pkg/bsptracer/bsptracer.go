@@ -46,6 +46,7 @@ func LoadMap(directory, mapName string) (*Map, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	m := &Map{
 		brushes:     bspfile.Lump(bsp.LumpBrushes).(*lumps.Brush).GetData(),
 		brushSides:  bspfile.Lump(bsp.LumpBrushSides).(*lumps.BrushSide).GetData(),
@@ -59,7 +60,9 @@ func LoadMap(directory, mapName string) (*Map, error) {
 		surfEdges:   bspfile.Lump(bsp.LumpSurfEdges).(*lumps.Surfedge).GetData(),
 		vertices:    bspfile.Lump(bsp.LumpVertexes).(*lumps.Vertex).GetData(),
 	}
+
 	m.parsePolygons()
+
 	return m, nil
 }
 
@@ -70,15 +73,14 @@ func (m *Map) parsePolygons() {
 		firstEdge := int(surface.FirstEdge)
 		numEdges := int(surface.NumEdges)
 
-		if numEdges < 3 || numEdges > maxSurfinfoVerts {
-			continue
-		}
-		if surface.TexInfo <= 0 {
+		if numEdges < 3 || numEdges > maxSurfinfoVerts || surface.TexInfo <= 0 {
 			continue
 		}
 
-		var polygon polygon
-		var edge mgl32.Vec3
+		var (
+			polygon polygon
+			edge    mgl32.Vec3
+		)
 
 		for i := 0; i < numEdges; i++ {
 			edgeIndex := m.surfEdges[firstEdge+i]
@@ -87,6 +89,7 @@ func (m *Map) parsePolygons() {
 			} else {
 				edge = m.vertices[m.edges[-edgeIndex][1]]
 			}
+
 			polygon.verts[i] = edge
 		}
 
@@ -120,38 +123,46 @@ func (m *Map) TraceRay(origin, destination mgl32.Vec3) *Trace {
 	} else {
 		out.EndPos = destination
 	}
+
 	return out
 }
 
 func (m *Map) rayCastNode(nodeIndex int32, startFraction, endFraction float32,
-	origin, destination mgl32.Vec3, out *Trace) {
+	origin, destination mgl32.Vec3, out *Trace,
+) {
 	if out.Fraction <= startFraction {
 		return
 	}
 
 	if nodeIndex < 0 {
 		leaf := m.leaves[-nodeIndex-1]
+
 		for i := uint16(0); i < leaf.NumLeafBrushes; i++ {
 			brushIndex := m.leafBrushes[leaf.FirstLeafBrush+i]
 			brush := &m.brushes[brushIndex]
+
 			if brush.Contents&bsp.MASK_SHOT_HULL == 0 {
 				continue
 			}
 
 			m.rayCastBrush(brush, origin, destination, out)
+
 			if out.Fraction == 0 {
 				return
 			}
 
 			out.Brush = brush
 		}
+
 		if out.StartSolid || out.Fraction < 1 {
 			return
 		}
+
 		for i := uint16(0); i < leaf.NumLeafFaces; i++ {
 			m.rayCastSurface(int(m.leafFaces[leaf.FirstLeafFace+i]),
 				origin, destination, out)
 		}
+
 		return
 	}
 
@@ -173,27 +184,29 @@ func (m *Map) rayCastNode(nodeIndex int32, startFraction, endFraction float32,
 	} else if startDistance < 0 && endDistance < 0 {
 		m.rayCastNode(node.Children[1], startFraction, endFraction, origin, destination, out)
 	} else {
-		var sideId uint
-		var fractionFirst, fractionSecond float32
-		var middle mgl32.Vec3
+		var (
+			sideID                        uint
+			fractionFirst, fractionSecond float32
+			middle                        mgl32.Vec3
+		)
 
 		if startDistance < endDistance {
 			// back
-			sideId = 1
+			sideID = 1
 			inversedDistance := 1 / (startDistance - endDistance)
 
 			fractionFirst = (startDistance + mgl32.Epsilon) * inversedDistance
 			fractionSecond = fractionFirst
 		} else if endDistance < startDistance {
 			// front
-			sideId = 0
+			sideID = 0
 			inversedDistance := 1 / (startDistance - endDistance)
 
 			fractionFirst = (startDistance + mgl32.Epsilon) * inversedDistance
 			fractionSecond = (startDistance - mgl32.Epsilon) * inversedDistance
 		} else {
 			// front
-			sideId = 0
+			sideID = 0
 			fractionFirst = 1
 			fractionSecond = 0
 		}
@@ -213,13 +226,13 @@ func (m *Map) rayCastNode(nodeIndex int32, startFraction, endFraction float32,
 			middle[i] = origin[i] + fractionFirst*(destination[i]-origin[i])
 		}
 
-		m.rayCastNode(node.Children[sideId],
+		m.rayCastNode(node.Children[sideID],
 			startFraction, fractionMiddle, origin, middle, out)
 		for i := 0; i < 3; i++ {
 			middle[i] = origin[i] + fractionSecond*(destination[i]-origin[i])
 		}
 
-		m.rayCastNode(node.Children[(^sideId)&1],
+		m.rayCastNode(node.Children[(^sideID)&1],
 			fractionMiddle, endFraction, middle, destination, out)
 	}
 }
@@ -230,6 +243,7 @@ func (m *Map) rayCastBrush(brush *brush.Brush, origin, destination mgl32.Vec3, o
 		fractionToLeave := float32(1)
 		startsOut := false
 		endsOut := false
+
 		for i := int32(0); i < brush.NumSides; i++ {
 			brushSide := m.brushSides[brush.FirstSide+i]
 			if brushSide.Bevel&0xff != 0 {
@@ -240,8 +254,10 @@ func (m *Map) rayCastBrush(brush *brush.Brush, origin, destination mgl32.Vec3, o
 
 			startDistance := origin.Dot(plane.Normal) - plane.Distance
 			endDistance := destination.Dot(plane.Normal) - plane.Distance
+
 			if startDistance > 0 {
 				startsOut = true
+
 				if endDistance > 0 {
 					return
 				}
@@ -251,11 +267,13 @@ func (m *Map) rayCastBrush(brush *brush.Brush, origin, destination mgl32.Vec3, o
 				}
 				endsOut = true
 			}
+
 			if startDistance > endDistance {
 				fraction := startDistance - distEpsilon
 				if fraction < 0 {
 					fraction = 0
 				}
+
 				if fraction > fractionToEnter {
 					fractionToEnter = fraction
 				}
@@ -281,14 +299,14 @@ func (m *Map) rayCastBrush(brush *brush.Brush, origin, destination mgl32.Vec3, o
 				out.AllSolid = true
 				out.Fraction = 0
 				out.FractionLeftSolid = 1
-			} else {
-				if fractionToLeave != 1 && fractionToLeave > out.FractionLeftSolid {
-					out.FractionLeftSolid = fractionToLeave
-					if out.Fraction <= fractionToLeave {
-						out.Fraction = 1
-					}
+			} else if fractionToLeave != 1 && fractionToLeave > out.FractionLeftSolid {
+				out.FractionLeftSolid = fractionToLeave
+
+				if out.Fraction <= fractionToLeave {
+					out.Fraction = 1
 				}
 			}
+
 			return
 		}
 
@@ -328,6 +346,7 @@ func (m *Map) rayCastSurface(index int, origin, destination mgl32.Vec3, out *Tra
 
 		i := 0
 		intersection := origin.Add(destination.Sub(origin).Mul(t))
+
 		for ; i < polygon.numVerts; i++ {
 			edgePlane := polygon.edgePlanes[i]
 			if edgePlane.origin.Len() == 0 {
@@ -336,10 +355,12 @@ func (m *Map) rayCastSurface(index int, origin, destination mgl32.Vec3, out *Tra
 				edgePlane.origin.Normalize()
 				edgePlane.distance = edgePlane.origin.Dot(polygon.verts[i])
 			}
+
 			if edgePlane.dist(intersection) < 0 {
 				break
 			}
 		}
+
 		if i == polygon.numVerts {
 			out.Fraction = 0.2
 			out.EndPos = intersection
