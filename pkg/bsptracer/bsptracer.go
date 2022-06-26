@@ -16,7 +16,10 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-const maxSurfinfoVerts = 32
+const (
+	distEpsilon      = float32(0.03125)
+	maxSurfinfoVerts = 32
+)
 
 // Map is a loaded BSP map.
 type Map struct {
@@ -94,6 +97,256 @@ func (m *Map) parsePolygons() {
 	}
 }
 
+// IsVisible returns true if destination is visible from origin, as computed by
+// a ray trace.
+func (m *Map) IsVisible(origin, destination mgl32.Vec3) bool {
+	return m.TraceRay(origin, destination).Fraction >= 1
+}
+
+// TraceRay traces a ray from origin to destination and returns the result.
+func (m *Map) TraceRay(origin, destination mgl32.Vec3) *Trace {
+	out := &Trace{
+		AllSolid:   true,
+		StartSolid: true,
+		Fraction:   1,
+	}
+
+	m.rayCastNode(0, 0, 1, origin, destination, out)
+
+	if out.Fraction < 1 {
+		for i := 0; i < 3; i++ {
+			out.EndPos[i] = origin[i] + out.Fraction*(destination[i]-origin[i])
+		}
+	} else {
+		out.EndPos = destination
+	}
+	return out
+}
+
+func (m *Map) rayCastNode(nodeIndex int32, startFraction, endFraction float32,
+	origin, destination mgl32.Vec3, out *Trace) {
+	if out.Fraction <= startFraction {
+		return
+	}
+
+	if nodeIndex < 0 {
+		leaf := m.leaves[-nodeIndex-1]
+		for i := uint16(0); i < leaf.NumLeafBrushes; i++ {
+			brushIndex := m.leafBrushes[leaf.FirstLeafBrush+i]
+			brush := &m.brushes[brushIndex]
+			if brush.Contents&bsp.MASK_SHOT_HULL == 0 {
+				continue
+			}
+
+			m.rayCastBrush(brush, origin, destination, out)
+			if out.Fraction == 0 {
+				return
+			}
+
+			out.Brush = brush
+		}
+		if out.StartSolid || out.Fraction < 1 {
+			return
+		}
+		for i := uint16(0); i < leaf.NumLeafFaces; i++ {
+			m.rayCastSurface(int(m.leafFaces[leaf.FirstLeafFace+i]),
+				origin, destination, out)
+		}
+		return
+	}
+
+	node := m.nodes[nodeIndex]
+	plane := m.planes[node.PlaneNum]
+
+	var startDistance, endDistance float32
+
+	if plane.AxisType < 3 {
+		startDistance = origin[plane.AxisType] - plane.Distance
+		endDistance = destination[plane.AxisType] - plane.Distance
+	} else {
+		startDistance = origin.Dot(plane.Normal) - plane.Distance
+		endDistance = destination.Dot(plane.Normal) - plane.Distance
+	}
+
+	if startDistance >= 0 && endDistance >= 0 {
+		m.rayCastNode(node.Children[0], startFraction, endFraction, origin, destination, out)
+	} else if startDistance < 0 && endDistance < 0 {
+		m.rayCastNode(node.Children[1], startFraction, endFraction, origin, destination, out)
+	} else {
+		var sideId uint
+		var fractionFirst, fractionSecond float32
+		var middle mgl32.Vec3
+
+		if startDistance < endDistance {
+			// back
+			sideId = 1
+			inversedDistance := 1 / (startDistance - endDistance)
+
+			fractionFirst = (startDistance + mgl32.Epsilon) * inversedDistance
+			fractionSecond = fractionFirst
+		} else if endDistance < startDistance {
+			// front
+			sideId = 0
+			inversedDistance := 1 / (startDistance - endDistance)
+
+			fractionFirst = (startDistance + mgl32.Epsilon) * inversedDistance
+			fractionSecond = (startDistance - mgl32.Epsilon) * inversedDistance
+		} else {
+			// front
+			sideId = 0
+			fractionFirst = 1
+			fractionSecond = 0
+		}
+		if fractionFirst < 0 {
+			fractionFirst = 0
+		} else if fractionFirst > 1 {
+			fractionFirst = 1
+		}
+		if fractionSecond < 0 {
+			fractionSecond = 0
+		} else if fractionSecond > 1 {
+			fractionSecond = 1
+		}
+
+		fractionMiddle := startFraction + (endFraction-startFraction)*fractionFirst
+		for i := 0; i < 3; i++ {
+			middle[i] = origin[i] + fractionFirst*(destination[i]-origin[i])
+		}
+
+		m.rayCastNode(node.Children[sideId],
+			startFraction, fractionMiddle, origin, middle, out)
+		for i := 0; i < 3; i++ {
+			middle[i] = origin[i] + fractionSecond*(destination[i]-origin[i])
+		}
+
+		m.rayCastNode(node.Children[(^sideId)&1],
+			fractionMiddle, endFraction, middle, destination, out)
+	}
+}
+
+func (m *Map) rayCastBrush(brush *brush.Brush, origin, destination mgl32.Vec3, out *Trace) {
+	if brush.NumSides != 0 {
+		fractionToEnter := float32(-99)
+		fractionToLeave := float32(1)
+		startsOut := false
+		endsOut := false
+		for i := int32(0); i < brush.NumSides; i++ {
+			brushSide := m.brushSides[brush.FirstSide+i]
+			if brushSide.Bevel&0xff != 0 {
+				continue
+			}
+
+			plane := m.planes[brushSide.PlaneNum]
+
+			startDistance := origin.Dot(plane.Normal) - plane.Distance
+			endDistance := destination.Dot(plane.Normal) - plane.Distance
+			if startDistance > 0 {
+				startsOut = true
+				if endDistance > 0 {
+					return
+				}
+			} else {
+				if endDistance <= 0 {
+					continue
+				}
+				endsOut = true
+			}
+			if startDistance > endDistance {
+				fraction := startDistance - distEpsilon
+				if fraction < 0 {
+					fraction = 0
+				}
+				if fraction > fractionToEnter {
+					fractionToEnter = fraction
+				}
+			} else {
+				fraction := (startDistance + distEpsilon) / (startDistance - endDistance)
+				if fraction < fractionToLeave {
+					fractionToLeave = fraction
+				}
+			}
+		}
+
+		if startsOut && out.FractionLeftSolid-fractionToEnter > 0 {
+			startsOut = false
+		}
+
+		out.NumBrushSides = brush.NumSides
+
+		if !startsOut {
+			out.StartSolid = true
+			out.Contents = brush.Contents
+
+			if !endsOut {
+				out.AllSolid = true
+				out.Fraction = 0
+				out.FractionLeftSolid = 1
+			} else {
+				if fractionToLeave != 1 && fractionToLeave > out.FractionLeftSolid {
+					out.FractionLeftSolid = fractionToLeave
+					if out.Fraction <= fractionToLeave {
+						out.Fraction = 1
+					}
+				}
+			}
+			return
+		}
+
+		if fractionToEnter < fractionToLeave {
+			if fractionToEnter > -99 && fractionToEnter < out.Fraction {
+				if fractionToEnter < 0 {
+					fractionToEnter = 0
+				}
+
+				out.Fraction = fractionToEnter
+				out.Brush = brush
+				out.Contents = brush.Contents
+			}
+		}
+	}
+}
+
+func (m *Map) rayCastSurface(index int, origin, destination mgl32.Vec3, out *Trace) {
+	if index >= len(m.polygons) {
+		return
+	}
+
+	polygon := m.polygons[index]
+	plane := polygon.plane
+	dot1 := plane.dist(origin)
+	dot2 := plane.dist(destination)
+
+	if (dot1 > 0) != (dot2 > 0) {
+		if dot1-dot2 < distEpsilon {
+			return
+		}
+
+		t := dot1 / (dot1 - dot2)
+		if t <= 0 {
+			return
+		}
+
+		i := 0
+		intersection := origin.Add(destination.Sub(origin).Mul(t))
+		for ; i < polygon.numVerts; i++ {
+			edgePlane := polygon.edgePlanes[i]
+			if edgePlane.origin.Len() == 0 {
+				edgePlane.origin = plane.origin.Sub(
+					polygon.verts[i].Sub(polygon.verts[(i+1)%polygon.numVerts]))
+				edgePlane.origin.Normalize()
+				edgePlane.distance = edgePlane.origin.Dot(polygon.verts[i])
+			}
+			if edgePlane.dist(intersection) < 0 {
+				break
+			}
+		}
+		if i == polygon.numVerts {
+			out.Fraction = 0.2
+			out.EndPos = intersection
+		}
+	}
+}
+
 type polygon struct {
 	verts      [maxSurfinfoVerts]mgl32.Vec3
 	numVerts   int
@@ -106,4 +359,20 @@ type polygon struct {
 type vplane struct {
 	origin   mgl32.Vec3
 	distance float32
+}
+
+func (v *vplane) dist(destination mgl32.Vec3) float32 {
+	return v.origin.Dot(destination) - v.distance
+}
+
+// Trace captures the result of a ray trace.
+type Trace struct {
+	AllSolid          bool
+	StartSolid        bool
+	Fraction          float32
+	FractionLeftSolid float32
+	EndPos            mgl32.Vec3
+	Contents          int32
+	Brush             *brush.Brush
+	NumBrushSides     int32
 }
