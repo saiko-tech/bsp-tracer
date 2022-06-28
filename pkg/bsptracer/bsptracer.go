@@ -3,17 +3,21 @@
 package bsptracer
 
 import (
-	"path/filepath"
-
 	"github.com/galaco/bsp"
 	"github.com/galaco/bsp/lumps"
 	"github.com/galaco/bsp/primitives/brush"
 	"github.com/galaco/bsp/primitives/brushside"
+	"github.com/galaco/bsp/primitives/dispinfo"
+	"github.com/galaco/bsp/primitives/disptris"
+	"github.com/galaco/bsp/primitives/dispvert"
 	"github.com/galaco/bsp/primitives/face"
 	"github.com/galaco/bsp/primitives/leaf"
 	"github.com/galaco/bsp/primitives/node"
 	"github.com/galaco/bsp/primitives/plane"
+	"github.com/galaco/studiomodel"
+	"github.com/galaco/vpk2"
 	"github.com/go-gl/mathgl/mgl32"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -35,19 +39,28 @@ type Map struct {
 	surfaces    []face.Face
 	surfEdges   []int32
 	vertices    []mgl32.Vec3
+	game        *lumps.Game         // TODO: may be needed for props + leaves? or maybe not ...
+	dispInfo    []dispinfo.DispInfo // TODO: trace against displacements
+	dispVerts   []dispvert.DispVert
+	dispTris    []disptris.DispTri
 
 	// constructed by this package
+	entities []map[string]string // TODO: not yet sure if we'll need this
 	polygons []polygon
+	props    []*studiomodel.StudioModel // TODO: place props in the world and trace against them
 }
 
-// LoadMap loads a BSP map from a file.
-func LoadMap(directory, mapName string) (*Map, error) {
-	bspfile, err := bsp.ReadFromFile(filepath.Join(directory, mapName))
-	if err != nil {
-		return nil, err
-	}
+// LoadMap loads a map from a BSP file and VPKs.
+// May return MissingModelsError if models can't be found - this is not fatal and the map can still be used.
+func LoadMap(bspfile *bsp.Bsp, vpks ...*vpk.VPK) (Map, error) {
+	entitiesStr := bspfile.Lump(bsp.LumpEntities).(*lumps.EntData).GetData()
+	entities := parseEntities(entitiesStr)
 
-	m := &Map{
+	polygons := parsePolygons(bspfile)
+
+	props, missingModelsErr := loadProps(bspfile, vpks)
+
+	m := Map{
 		brushes:     bspfile.Lump(bsp.LumpBrushes).(*lumps.Brush).GetData(),
 		brushSides:  bspfile.Lump(bsp.LumpBrushSides).(*lumps.BrushSide).GetData(),
 		edges:       bspfile.Lump(bsp.LumpEdges).(*lumps.Edge).GetData(),
@@ -59,55 +72,69 @@ func LoadMap(directory, mapName string) (*Map, error) {
 		surfaces:    bspfile.Lump(bsp.LumpFaces).(*lumps.Face).GetData(),
 		surfEdges:   bspfile.Lump(bsp.LumpSurfEdges).(*lumps.Surfedge).GetData(),
 		vertices:    bspfile.Lump(bsp.LumpVertexes).(*lumps.Vertex).GetData(),
+		game:        bspfile.Lump(bsp.LumpGame).(*lumps.Game).GetData(),
+		dispInfo:    bspfile.Lump(bsp.LumpDispInfo).(*lumps.DispInfo).GetData(),
+		dispVerts:   bspfile.Lump(bsp.LumpDispVerts).(*lumps.DispVert).GetData(),
+		dispTris:    bspfile.Lump(bsp.LumpDispTris).(*lumps.DispTris).GetData(),
+		entities:    entities,
+		polygons:    polygons,
+		props:       props,
 	}
 
-	m.parsePolygons()
+	if missingModelsErr != nil {
+		return m, missingModelsErr
+	}
 
 	return m, nil
 }
 
-func (m *Map) parsePolygons() {
-	m.polygons = make([]polygon, len(m.surfaces), 2*len(m.surfaces))
-
-	for _, surface := range m.surfaces {
-		firstEdge := int(surface.FirstEdge)
-		numEdges := int(surface.NumEdges)
-
-		if numEdges < 3 || numEdges > maxSurfinfoVerts || surface.TexInfo <= 0 {
-			continue
-		}
-
-		var (
-			polygon polygon
-			edge    mgl32.Vec3
-		)
-
-		for i := 0; i < numEdges; i++ {
-			edgeIndex := m.surfEdges[firstEdge+i]
-			if edgeIndex >= 0 {
-				edge = m.vertices[m.edges[edgeIndex][0]]
-			} else {
-				edge = m.vertices[m.edges[-edgeIndex][1]]
-			}
-
-			polygon.verts[i] = edge
-		}
-
-		polygon.numVerts = numEdges
-		polygon.plane.origin = m.planes[surface.Planenum].Normal
-		polygon.plane.distance = m.planes[surface.Planenum].Distance
-		m.polygons = append(m.polygons, polygon)
+// LoadMapFromFileSystem loads a BSP map from the file system.
+// vpkPaths is a list of paths to either single or multi VPKs to load models, in order of priority.
+// for CS:GO, vpkPaths should be paths to ("SteamLibrary/steamapps/common/Counter-Strike Global Offensive/csgo/pak01", "SteamLibrary/steamapps/common/Counter-Strike Global Offensive/platform/platform_pak01")
+// See also LoadMap()
+func LoadMapFromFileSystem(mapPath string, vpkPaths ...string) (Map, error) {
+	bspfile, err := bsp.ReadFromFile(mapPath)
+	if err != nil {
+		return Map{}, err
 	}
+
+	vpks := make([]*vpk.VPK, len(vpkPaths))
+
+	for i, path := range vpkPaths {
+		var err error
+
+		vpks[i], err = vpk.Open(vpk.MultiVPK(path))
+		if err != nil {
+			vpks[i], err = vpk.Open(vpk.SingleVPK(path))
+			if err != nil {
+				return Map{}, errors.Wrapf(err, "failed to open vpk %q", path)
+			}
+		}
+	}
+
+	return LoadMap(bspfile, vpks...)
 }
 
 // IsVisible returns true if destination is visible from origin, as computed by
 // a ray trace.
-func (m *Map) IsVisible(origin, destination mgl32.Vec3) bool {
+func (m Map) IsVisible(origin, destination mgl32.Vec3) bool {
 	return m.TraceRay(origin, destination).Fraction >= 1
 }
 
+// Trace captures the result of a ray trace.
+type Trace struct {
+	AllSolid          bool
+	StartSolid        bool
+	Fraction          float32
+	FractionLeftSolid float32
+	EndPos            mgl32.Vec3
+	Contents          int32
+	Brush             *brush.Brush
+	NumBrushSides     int32
+}
+
 // TraceRay traces a ray from origin to destination and returns the result.
-func (m *Map) TraceRay(origin, destination mgl32.Vec3) *Trace {
+func (m Map) TraceRay(origin, destination mgl32.Vec3) *Trace {
 	out := &Trace{
 		AllSolid:   true,
 		StartSolid: true,
@@ -127,7 +154,7 @@ func (m *Map) TraceRay(origin, destination mgl32.Vec3) *Trace {
 	return out
 }
 
-func (m *Map) rayCastNode(nodeIndex int32, startFraction, endFraction float32,
+func (m Map) rayCastNode(nodeIndex int32, startFraction, endFraction float32,
 	origin, destination mgl32.Vec3, out *Trace,
 ) {
 	if out.Fraction <= startFraction {
@@ -237,7 +264,7 @@ func (m *Map) rayCastNode(nodeIndex int32, startFraction, endFraction float32,
 	}
 }
 
-func (m *Map) rayCastBrush(brush *brush.Brush, origin, destination mgl32.Vec3, out *Trace) {
+func (m Map) rayCastBrush(brush *brush.Brush, origin, destination mgl32.Vec3, out *Trace) {
 	if brush.NumSides != 0 {
 		fractionToEnter := float32(-99)
 		fractionToLeave := float32(1)
@@ -324,7 +351,7 @@ func (m *Map) rayCastBrush(brush *brush.Brush, origin, destination mgl32.Vec3, o
 	}
 }
 
-func (m *Map) rayCastSurface(index int, origin, destination mgl32.Vec3, out *Trace) {
+func (m Map) rayCastSurface(index int, origin, destination mgl32.Vec3, out *Trace) {
 	if index >= len(m.polygons) {
 		return
 	}
@@ -366,34 +393,4 @@ func (m *Map) rayCastSurface(index int, origin, destination mgl32.Vec3, out *Tra
 			out.EndPos = intersection
 		}
 	}
-}
-
-type polygon struct {
-	verts      [maxSurfinfoVerts]mgl32.Vec3
-	numVerts   int
-	plane      vplane
-	edgePlanes []vplane
-	vec2d      [maxSurfinfoVerts]mgl32.Vec3
-	skip       int
-}
-
-type vplane struct {
-	origin   mgl32.Vec3
-	distance float32
-}
-
-func (v *vplane) dist(destination mgl32.Vec3) float32 {
-	return v.origin.Dot(destination) - v.distance
-}
-
-// Trace captures the result of a ray trace.
-type Trace struct {
-	AllSolid          bool
-	StartSolid        bool
-	Fraction          float32
-	FractionLeftSolid float32
-	EndPos            mgl32.Vec3
-	Contents          int32
-	Brush             *brush.Brush
-	NumBrushSides     int32
 }
