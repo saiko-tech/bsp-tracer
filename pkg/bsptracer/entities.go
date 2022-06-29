@@ -1,8 +1,15 @@
 package bsptracer
 
-import "strings"
+import (
+	"strings"
 
-func parseEntities(str string) []map[string]string {
+	"github.com/galaco/bsp"
+	"github.com/galaco/bsp/lumps"
+)
+
+func parseEntities(bspfile *bsp.Bsp) []map[string]string {
+	str := bspfile.Lump(bsp.LumpEntities).(*lumps.EntData).GetData()
+
 	blocks := strings.Split(str, "}")
 	entities := make([]map[string]string, 0, len(blocks))
 

@@ -45,40 +45,54 @@ type Map struct {
 	dispTris    []disptris.DispTri
 
 	// constructed by this package
-	entities []map[string]string // TODO: not yet sure if we'll need this
-	polygons []polygon
-	props    []*studiomodel.StudioModel // TODO: place props in the world and trace against them
+	entities          []map[string]string // TODO: not yet sure if we'll need this
+	polygons          []polygon
+	models            []*studiomodel.StudioModel // TODO: place props in the world and trace against them
+	staticPropsByLeaf map[uint16][]*studiomodel.StudioModel
+}
+
+func staticPropsByLeaf(bspfile *bsp.Bsp, models []*studiomodel.StudioModel) map[uint16][]*studiomodel.StudioModel {
+	res := make(map[uint16][]*studiomodel.StudioModel)
+
+	gameLump := bspfile.Lump(bsp.LumpGame).(*lumps.Game).GetData()
+	spLump := gameLump.GetStaticPropLump()
+
+	for _, p := range spLump.PropLumps {
+		leafIndices := spLump.LeafLump.Leaf[p.GetFirstLeaf() : p.GetFirstLeaf()+p.GetLeafCount()]
+
+		for _, i := range leafIndices {
+			res[i] = append(res[i], models[p.GetPropType()])
+		}
+	}
+
+	return res
 }
 
 // LoadMap loads a map from a BSP file and VPKs.
 // May return MissingModelsError if models can't be found - this is not fatal and the map can still be used.
 func LoadMap(bspfile *bsp.Bsp, vpks ...*vpk.VPK) (Map, error) {
-	entitiesStr := bspfile.Lump(bsp.LumpEntities).(*lumps.EntData).GetData()
-	entities := parseEntities(entitiesStr)
-
-	polygons := parsePolygons(bspfile)
-
-	props, missingModelsErr := loadProps(bspfile, vpks)
+	models, missingModelsErr := loadModels(bspfile, vpks)
 
 	m := Map{
-		brushes:     bspfile.Lump(bsp.LumpBrushes).(*lumps.Brush).GetData(),
-		brushSides:  bspfile.Lump(bsp.LumpBrushSides).(*lumps.BrushSide).GetData(),
-		edges:       bspfile.Lump(bsp.LumpEdges).(*lumps.Edge).GetData(),
-		leafBrushes: bspfile.Lump(bsp.LumpLeafBrushes).(*lumps.LeafBrush).GetData(),
-		leafFaces:   bspfile.Lump(bsp.LumpLeafFaces).(*lumps.LeafFace).GetData(),
-		leaves:      bspfile.Lump(bsp.LumpLeafs).(*lumps.Leaf).GetData(),
-		nodes:       bspfile.Lump(bsp.LumpNodes).(*lumps.Node).GetData(),
-		planes:      bspfile.Lump(bsp.LumpPlanes).(*lumps.Planes).GetData(),
-		surfaces:    bspfile.Lump(bsp.LumpFaces).(*lumps.Face).GetData(),
-		surfEdges:   bspfile.Lump(bsp.LumpSurfEdges).(*lumps.Surfedge).GetData(),
-		vertices:    bspfile.Lump(bsp.LumpVertexes).(*lumps.Vertex).GetData(),
-		game:        bspfile.Lump(bsp.LumpGame).(*lumps.Game).GetData(),
-		dispInfo:    bspfile.Lump(bsp.LumpDispInfo).(*lumps.DispInfo).GetData(),
-		dispVerts:   bspfile.Lump(bsp.LumpDispVerts).(*lumps.DispVert).GetData(),
-		dispTris:    bspfile.Lump(bsp.LumpDispTris).(*lumps.DispTris).GetData(),
-		entities:    entities,
-		polygons:    polygons,
-		props:       props,
+		brushes:           bspfile.Lump(bsp.LumpBrushes).(*lumps.Brush).GetData(),
+		brushSides:        bspfile.Lump(bsp.LumpBrushSides).(*lumps.BrushSide).GetData(),
+		edges:             bspfile.Lump(bsp.LumpEdges).(*lumps.Edge).GetData(),
+		leafBrushes:       bspfile.Lump(bsp.LumpLeafBrushes).(*lumps.LeafBrush).GetData(),
+		leafFaces:         bspfile.Lump(bsp.LumpLeafFaces).(*lumps.LeafFace).GetData(),
+		leaves:            bspfile.Lump(bsp.LumpLeafs).(*lumps.Leaf).GetData(),
+		nodes:             bspfile.Lump(bsp.LumpNodes).(*lumps.Node).GetData(),
+		planes:            bspfile.Lump(bsp.LumpPlanes).(*lumps.Planes).GetData(),
+		surfaces:          bspfile.Lump(bsp.LumpFaces).(*lumps.Face).GetData(),
+		surfEdges:         bspfile.Lump(bsp.LumpSurfEdges).(*lumps.Surfedge).GetData(),
+		vertices:          bspfile.Lump(bsp.LumpVertexes).(*lumps.Vertex).GetData(),
+		game:              bspfile.Lump(bsp.LumpGame).(*lumps.Game).GetData(),
+		dispInfo:          bspfile.Lump(bsp.LumpDispInfo).(*lumps.DispInfo).GetData(),
+		dispVerts:         bspfile.Lump(bsp.LumpDispVerts).(*lumps.DispVert).GetData(),
+		dispTris:          bspfile.Lump(bsp.LumpDispTris).(*lumps.DispTris).GetData(),
+		entities:          parseEntities(bspfile),
+		polygons:          buildPolygons(bspfile),
+		models:            models,
+		staticPropsByLeaf: staticPropsByLeaf(bspfile, models),
 	}
 
 	if missingModelsErr != nil {
@@ -162,7 +176,8 @@ func (m Map) rayCastNode(nodeIndex int32, startFraction, endFraction float32,
 	}
 
 	if nodeIndex < 0 {
-		leaf := m.leaves[-nodeIndex-1]
+		leafIndex := -nodeIndex - 1
+		leaf := m.leaves[leafIndex]
 
 		for i := uint16(0); i < leaf.NumLeafBrushes; i++ {
 			brushIndex := m.leafBrushes[leaf.FirstLeafBrush+i]
@@ -190,7 +205,13 @@ func (m Map) rayCastNode(nodeIndex int32, startFraction, endFraction float32,
 				origin, destination, out)
 		}
 
-		// TODO: handle leaf props
+		for _, p := range m.staticPropsByLeaf[uint16(leafIndex)] {
+			_ = p.Phy.Vertices
+			_ = p.Phy.TriangleFaces
+
+			// TODO: trace against triangle faces (build them up during map load)
+		}
+
 		// TODO: handle leaf displacements
 
 		return

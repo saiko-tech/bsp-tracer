@@ -20,7 +20,7 @@ type virtualFileSystem interface {
 	GetFile(string) (io.ReadCloser, error)
 }
 
-func loadPropPart[T any](fs virtualFileSystem, filePath string, reader func(io.Reader) (T, error)) (T, error) {
+func loadModelPart[T any](fs virtualFileSystem, filePath string, reader func(io.Reader) (T, error)) (T, error) {
 	var def T
 
 	f, err := fs.GetFile(filePath)
@@ -38,23 +38,23 @@ func loadPropPart[T any](fs virtualFileSystem, filePath string, reader func(io.R
 	return part, nil
 }
 
-func loadProp(fs virtualFileSystem, filePath string) (*studiomodel.StudioModel, error) {
-	mdlData, err := loadPropPart(fs, filePath+".mdl", mdl.ReadFromStream)
+func loadModel(fs virtualFileSystem, filePath string) (*studiomodel.StudioModel, error) {
+	mdlData, err := loadModelPart(fs, filePath+".mdl", mdl.ReadFromStream)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to read mdl")
 	}
 
-	vvdData, err := loadPropPart(fs, filePath+".vvd", vvd.ReadFromStream)
+	vvdData, err := loadModelPart(fs, filePath+".vvd", vvd.ReadFromStream)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to read vvd")
 	}
 
-	vtxData, err := loadPropPart(fs, filePath+".dx90.vtx", vtx.ReadFromStream)
+	vtxData, err := loadModelPart(fs, filePath+".dx90.vtx", vtx.ReadFromStream)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to read vtx")
 	}
 
-	phyData, err := loadPropPart(fs, filePath+".phy", phy.ReadFromStream)
+	phyData, err := loadModelPart(fs, filePath+".phy", phy.ReadFromStream)
 	if err != nil && !errors.Is(err, errFileNotFound) {
 		return nil, errors.Wrap(err, "failed to read phy")
 	}
@@ -68,9 +68,9 @@ func loadProp(fs virtualFileSystem, filePath string) (*studiomodel.StudioModel, 
 	}, nil
 }
 
-// LoadProp loads a single prop/model of known filepath
-func LoadProp(fs virtualFileSystem, path string) (*studiomodel.StudioModel, error) {
-	prop, err := loadProp(fs, strings.Split(path, ".mdl")[0])
+// LoadModel loads a single prop/model of known filepath
+func LoadModel(fs virtualFileSystem, path string) (*studiomodel.StudioModel, error) {
+	prop, err := loadModel(fs, strings.Split(path, ".mdl")[0])
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to read studiomodel")
 	}
@@ -86,7 +86,7 @@ func (m MissingModelsError) Error() string {
 	return fmt.Sprintf(`missing models: ("%s")`, strings.Join(m.missingModels, `", "`))
 }
 
-func loadProps(bspfile *bsp.Bsp, vpks []*vpk.VPK) ([]*studiomodel.StudioModel, error) {
+func loadModels(bspfile *bsp.Bsp, vpks []*vpk.VPK) ([]*studiomodel.StudioModel, error) {
 	fs := vfs{
 		pakfile: bspfile.Lump(bsp.LumpPakfile).(*lumps.Pakfile).GetData(),
 		vpks:    vpks,
@@ -100,7 +100,7 @@ func loadProps(bspfile *bsp.Bsp, vpks []*vpk.VPK) ([]*studiomodel.StudioModel, e
 	gameLump := bspfile.Lump(bsp.LumpGame).(*lumps.Game).GetData()
 
 	for _, model := range gameLump.GetStaticPropLump().DictLump.Name {
-		prop, err := LoadProp(fs, model)
+		prop, err := LoadModel(fs, model)
 		if err != nil {
 			missingModels = append(missingModels, model)
 

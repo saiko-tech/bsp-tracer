@@ -24,7 +24,7 @@ func (v *vplane) dist(destination mgl32.Vec3) float32 {
 	return v.origin.Dot(destination) - v.distance
 }
 
-func parsePolygons(bspfile *bsp.Bsp) []polygon {
+func buildPolygons(bspfile *bsp.Bsp) []polygon {
 	surfaces := bspfile.Lump(bsp.LumpFaces).(*lumps.Face).GetData()
 	surfEdges := bspfile.Lump(bsp.LumpSurfEdges).(*lumps.Surfedge).GetData()
 	vertices := bspfile.Lump(bsp.LumpVertexes).(*lumps.Vertex).GetData()
