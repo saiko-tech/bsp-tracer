@@ -190,6 +190,9 @@ func (m Map) rayCastNode(nodeIndex int32, startFraction, endFraction float32,
 				origin, destination, out)
 		}
 
+		// TODO: handle leaf props
+		// TODO: handle leaf displacements
+
 		return
 	}
 
