@@ -73,10 +73,18 @@ func staticPropsByLeaf(bspfile *bsp.Bsp, models []*studiomodel.StudioModel) map[
 
 		for _, i := range leafIndices {
 			model := models[p.GetPropType()]
+
+			var tris [][3]mgl32.Vec3
+
+			// missing model
+			if model != nil {
+				tris = triangles(p, model.Phy)
+			}
+
 			res[i] = append(res[i], staticProp{
 				prop:      p,
 				model:     model,
-				triangles: triangles(p, model.Phy),
+				triangles: tris,
 			})
 		}
 	}

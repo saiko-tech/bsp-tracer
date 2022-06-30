@@ -1,7 +1,9 @@
 package bsptracer_test
 
 import (
+	"log"
 	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -9,6 +11,17 @@ import (
 
 	"github.com/saiko-tech/bsp-tracer/pkg/bsptracer"
 )
+
+func TestMain(m *testing.M) {
+	log.Println("downloading testdata ...")
+
+	err := exec.Command("../../testdata/download.sh").Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	os.Exit(m.Run())
+}
 
 // expects CS:GO to be installed in "$HOME/games/SteamLibrary/steamapps/common/Counter-Strike Global Offensive"
 func csgoDir(tb testing.TB) string {
