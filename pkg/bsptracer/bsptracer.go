@@ -18,6 +18,8 @@ import (
 	"github.com/galaco/vpk2"
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/pkg/errors"
+
+	"github.com/saiko-tech/bsp-tracer/pkg/bsptracer/mollertrumbore"
 )
 
 const (
@@ -48,24 +50,7 @@ type Map struct {
 	entities          []map[string]string // TODO: not yet sure if we'll need this
 	polygons          []polygon
 	models            []*studiomodel.StudioModel // TODO: place props in the world and trace against them
-	staticPropsByLeaf map[uint16][]*studiomodel.StudioModel
-}
-
-func staticPropsByLeaf(bspfile *bsp.Bsp, models []*studiomodel.StudioModel) map[uint16][]*studiomodel.StudioModel {
-	res := make(map[uint16][]*studiomodel.StudioModel)
-
-	gameLump := bspfile.Lump(bsp.LumpGame).(*lumps.Game).GetData()
-	spLump := gameLump.GetStaticPropLump()
-
-	for _, p := range spLump.PropLumps {
-		leafIndices := spLump.LeafLump.Leaf[p.GetFirstLeaf() : p.GetFirstLeaf()+p.GetLeafCount()]
-
-		for _, i := range leafIndices {
-			res[i] = append(res[i], models[p.GetPropType()])
-		}
-	}
-
-	return res
+	staticPropsByLeaf map[uint16][]staticProp
 }
 
 // LoadMap loads a map from a BSP file and VPKs.
@@ -196,6 +181,21 @@ func (m Map) rayCastNode(nodeIndex int32, startFraction, endFraction float32,
 			out.Brush = brush
 		}
 
+		for _, p := range m.staticPropsByLeaf[uint16(leafIndex)] {
+			for _, t := range p.triangles {
+				r := mollertrumbore.RayIntersectsTriangle(origin, destination, t)
+				if r.Hit {
+					out.Fraction = 0 // TODO: should not be 0, should be fraction of ray
+
+					return
+				}
+			}
+
+			// TODO: use bounding box if no phy and model is set up to fall back to bbox
+		}
+
+		// TODO: handle leaf displacements
+
 		if out.StartSolid || out.Fraction < 1 {
 			return
 		}
@@ -204,15 +204,6 @@ func (m Map) rayCastNode(nodeIndex int32, startFraction, endFraction float32,
 			m.rayCastSurface(int(m.leafFaces[leaf.FirstLeafFace+i]),
 				origin, destination, out)
 		}
-
-		for _, p := range m.staticPropsByLeaf[uint16(leafIndex)] {
-			_ = p.Phy.Vertices
-			_ = p.Phy.TriangleFaces
-
-			// TODO: trace against triangle faces (build them up during map load)
-		}
-
-		// TODO: handle leaf displacements
 
 		return
 	}

@@ -1,4 +1,4 @@
-package bsptracer
+package bsptracer_test
 
 import (
 	"os"
@@ -6,49 +6,41 @@ import (
 
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/saiko-tech/bsp-tracer/pkg/bsptracer"
 )
+
+// expects CS:GO to be installed in "$HOME/games/SteamLibrary/steamapps/common/Counter-Strike Global Offensive"
+func csgoDir(tb testing.TB) string {
+	tb.Helper()
+
+	userHome, err := os.UserHomeDir()
+	assert.NoError(tb, err)
+
+	return userHome + "/games/SteamLibrary/steamapps/common/Counter-Strike Global Offensive"
+}
 
 func TestBspTracer_NonExisting(t *testing.T) {
 	t.Parallel()
 
-	_, err := LoadMapFromFileSystem("../../testdata/does_not_exist.bsp")
+	_, err := bsptracer.LoadMapFromFileSystem("../../testdata/does_not_exist.bsp")
 	assert.NotNil(t, err)
 }
 
 func TestBspTracer_BadFile(t *testing.T) {
 	t.Parallel()
 
-	_, err := LoadMapFromFileSystem("./map_test.go")
+	_, err := bsptracer.LoadMapFromFileSystem("./map_test.go")
 	assert.NotNil(t, err)
-}
-
-func TestLoadMap_de_cache(t *testing.T) {
-	t.Parallel()
-
-	m, err := LoadMapFromFileSystem("../../testdata/de_cache.bsp")
-	assert.Error(t, err)
-	assert.ErrorAs(t, err, new(MissingModelsError))
-
-	assert.Equal(t, 5560, len(m.brushes))
-	assert.Equal(t, 39815, len(m.brushSides))
-	assert.Equal(t, 129415, len(m.edges))
-	assert.Equal(t, 24072, len(m.leafBrushes))
-	assert.Equal(t, 18843, len(m.leafFaces))
-	assert.Equal(t, 8906, len(m.leaves))
-	assert.Equal(t, 8648, len(m.nodes))
-	assert.Equal(t, 30626, len(m.planes))
-	assert.Equal(t, 23221, len(m.surfaces))
-	assert.Equal(t, 185200, len(m.surfEdges))
-	assert.Equal(t, 48496, len(m.vertices))
-	assert.Equal(t, 46442, len(m.polygons))
 }
 
 func TestMap_TraceRay_de_cache(t *testing.T) {
 	t.Parallel()
 
-	m, err := LoadMapFromFileSystem("../../testdata/de_cache.bsp")
-	assert.Error(t, err)
-	assert.ErrorAs(t, err, new(MissingModelsError))
+	csgoDir := csgoDir(t)
+
+	m, err := bsptracer.LoadMapFromFileSystem("../../testdata/de_cache.bsp", csgoDir+"/csgo/pak01", csgoDir+"/platform/platform_pak01")
+	assert.NoError(t, err)
 
 	type args struct {
 		origin      mgl32.Vec3
@@ -56,7 +48,7 @@ func TestMap_TraceRay_de_cache(t *testing.T) {
 	}
 	type out struct {
 		visible bool
-		trace   Trace
+		trace   bsptracer.Trace
 	}
 	tests := []struct {
 		name string
@@ -71,55 +63,57 @@ func TestMap_TraceRay_de_cache(t *testing.T) {
 			},
 			want: out{
 				visible: true,
-				trace:   Trace{AllSolid: true, StartSolid: true, Fraction: 1, EndPos: mgl32.Vec3{-233, 1343, 1751}},
+				trace:   bsptracer.Trace{AllSolid: true, StartSolid: true, Fraction: 1, EndPos: mgl32.Vec3{-233, 1343, 1751}},
 			},
 		},
 		{
 			name: "T spawn -> A site",
 			args: args{
-				mgl32.Vec3{3306, 431, 1723},
-				mgl32.Vec3{-233, 1343, 1751},
+				origin:      mgl32.Vec3{3306, 431, 1723},
+				destination: mgl32.Vec3{-233, 1343, 1751},
 			},
 			want: out{
 				visible: false,
-				trace:   Trace{AllSolid: true, StartSolid: true, FractionLeftSolid: 1, EndPos: mgl32.Vec3{3306, 431, 1723}, Contents: 1, NumBrushSides: 7},
+				trace:   bsptracer.Trace{AllSolid: true, StartSolid: true, FractionLeftSolid: 1, EndPos: mgl32.Vec3{3306, 431, 1723}, Contents: 1, NumBrushSides: 7},
 			},
 		},
 		{
 			name: "T spawn -> T spawn",
 			args: args{
-				mgl32.Vec3{3306, 431, 1723},
-				mgl32.Vec3{3303, 431, 1723},
+				origin:      mgl32.Vec3{3306, 431, 1723},
+				destination: mgl32.Vec3{3303, 431, 1723},
 			},
 			want: out{
 				visible: true,
-				trace:   Trace{AllSolid: true, StartSolid: true, Fraction: 1, EndPos: mgl32.Vec3{3303, 431, 1723}},
+				trace:   bsptracer.Trace{AllSolid: true, StartSolid: true, Fraction: 1, EndPos: mgl32.Vec3{3303, 431, 1723}},
 			},
 		},
 		{
 			name: "through door",
 			args: args{
-				mgl32.Vec3{207, 1948, 1751},
-				mgl32.Vec3{259, 2251, 1752},
+				origin:      mgl32.Vec3{207, 1948, 1751},
+				destination: mgl32.Vec3{259, 2251, 1752},
 			},
 			want: out{
-				visible: true,
-				trace:   Trace{AllSolid: true, StartSolid: true, Fraction: 1, EndPos: mgl32.Vec3{259, 2251, 1752}},
+				visible: false,
+				trace:   bsptracer.Trace{AllSolid: true, StartSolid: true, Fraction: 1, EndPos: mgl32.Vec3{259, 2251, 1752}},
 			},
 		},
 		{
 			name: "through mid box",
 			args: args{
-				mgl32.Vec3{-94, 452, 1677},
-				mgl32.Vec3{138, 396, 1677},
+				origin:      mgl32.Vec3{-94, 452, 1677},
+				destination: mgl32.Vec3{138, 396, 1677},
 			},
 			want: out{
-				visible: true,
-				trace:   Trace{AllSolid: true, StartSolid: true, Fraction: 1, EndPos: mgl32.Vec3{138, 396, 1677}},
+				visible: false,
+				trace:   bsptracer.Trace{AllSolid: true, StartSolid: true, Fraction: 1, EndPos: mgl32.Vec3{138, 396, 1677}},
 			},
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
+
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -133,15 +127,24 @@ func TestMap_TraceRay_de_cache(t *testing.T) {
 	}
 }
 
-// expects CS:GO to be installed in "$HOME/games/SteamLibrary/steamapps/common/Counter-Strike Global Offensive"
 func TestLoadMap_de_cache_with_models(t *testing.T) {
 	t.Parallel()
 
-	userHome, err := os.UserHomeDir()
-	assert.NoError(t, err)
+	csgoDir := csgoDir(t)
 
-	csgoDir := userHome + "/games/SteamLibrary/steamapps/common/Counter-Strike Global Offensive"
-
-	_, err = LoadMapFromFileSystem("../../testdata/de_cache.bsp", csgoDir+"/csgo/pak01", csgoDir+"/platform/platform_pak01")
+	_, err := bsptracer.LoadMapFromFileSystem("../../testdata/de_cache.bsp", csgoDir+"/csgo/pak01", csgoDir+"/platform/platform_pak01")
 	assert.NoError(t, err)
+}
+
+func BenchmarkTraceBox(b *testing.B) {
+	csgoDir := csgoDir(b)
+
+	m, err := bsptracer.LoadMapFromFileSystem("../../testdata/de_cache.bsp", csgoDir+"/csgo/pak01", csgoDir+"/platform/platform_pak01")
+	assert.NoError(b, err)
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		assert.False(b, m.IsVisible(mgl32.Vec3{-94, 452, 1677}, mgl32.Vec3{138, 396, 1677}))
+	}
 }

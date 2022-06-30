@@ -18,7 +18,7 @@ type vfs struct {
 
 var errFileNotFound = errors.New("file not found")
 
-func (v vfs) GetFile(path string) (io.ReadCloser, error) {
+func (v vfs) open(path string) (io.ReadCloser, error) {
 	f, err := v.pakfile.Open(path)
 	if err == nil {
 		stat, err := f.Stat()
@@ -27,7 +27,7 @@ func (v vfs) GetFile(path string) (io.ReadCloser, error) {
 		}
 	}
 
-	// try case insensitive
+	// try case-insensitive
 	if v.pakfileIndex == nil {
 		v.pakfileIndex = make(map[string]*zip.File)
 
