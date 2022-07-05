@@ -14,6 +14,7 @@ type staticProp struct {
 	prop      game.IStaticPropDataLump
 	model     *studiomodel.StudioModel
 	triangles [][3]mgl32.Vec3
+	min, max  mgl32.Vec3 // AABB extents
 }
 
 func vectorITransform(in1 mgl32.Vec3, in2 mgl32.Mat3x4) (out mgl32.Vec3) {
@@ -87,19 +88,42 @@ func staticPropsByLeaf(bspfile *bsp.Bsp, models []*studiomodel.StudioModel) map[
 			model := models[p.GetPropType()]
 
 			var tris [][3]mgl32.Vec3
+			var min, max mgl32.Vec3
 
 			// missing model
 			if model != nil {
 				tris = triangles(p, model.Phy)
+				min, max = extents(tris)
 			}
 
 			res[i] = append(res[i], staticProp{
 				prop:      p,
 				model:     model,
 				triangles: tris,
+				min:       min,
+				max:       max,
 			})
 		}
 	}
 
 	return res
+}
+
+// find minimum and maximum extents of mesh
+func extents(tris [][3]mgl32.Vec3) (min, max mgl32.Vec3) {
+	min = mgl32.Vec3{mgl32.MaxValue, mgl32.MaxValue, mgl32.MaxValue}
+	max = mgl32.Vec3{mgl32.MinValue, mgl32.MinValue, mgl32.MinValue}
+	for _, tri := range tris {
+		for _, vertex := range tri {
+			for i, f := range vertex {
+				if f < min[i] {
+					min[i] = f
+				}
+				if f > max[i] {
+					max[i] = f
+				}
+			}
+		}
+	}
+	return
 }

@@ -19,7 +19,7 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/pkg/errors"
 
-	"github.com/saiko-tech/bsp-tracer/pkg/bsptracer/mollertrumbore"
+	"github.com/saiko-tech/bsp-tracer/pkg/bsptracer/collision"
 )
 
 const (
@@ -182,13 +182,23 @@ func (m Map) rayCastNode(nodeIndex int32, startFraction, endFraction float32,
 		}
 
 		for _, p := range m.staticPropsByLeaf[uint16(leafIndex)] {
-			for _, t := range p.triangles {
-				r := mollertrumbore.RayIntersectsTriangle(origin, destination, t)
-				if r.Hit {
-					out.Fraction = 0 // TODO: should not be 0, should be fraction of ray
+			r := collision.RayCastResult{}
 
-					return
+			switch p.prop.GetSolid() {
+			case 2:
+				for _, t := range p.triangles {
+					r = collision.RayIntersectsTriangle(origin, destination, t)
+					if r.Hit {
+						break
+					}
 				}
+			case 1:
+				r = collision.RayIntersectsAxisAlignedBoundingBox(origin, destination, p.min, p.max)
+			}
+
+			if r.Hit {
+				out.Fraction = 0 // TODO: should not be 0, should be fraction of ray
+				return
 			}
 
 			// TODO: use bounding box if no phy and model is set up to fall back to bbox
