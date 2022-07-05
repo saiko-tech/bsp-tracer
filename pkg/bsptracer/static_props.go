@@ -49,12 +49,24 @@ func triangles(prop game.IStaticPropDataLump, phy *phy.Phy) [][3]mgl32.Vec3 {
 		return nil
 	}
 
+	angleMatrices := []mgl32.Mat4{
+		mgl32.Rotate3DX(prop.GetAngles()[0]).Mat4(),
+		mgl32.Rotate3DY(prop.GetAngles()[1]).Mat4(),
+		mgl32.Rotate3DZ(prop.GetAngles()[2]).Mat4(),
+	}
+
 	out := make([][3]mgl32.Vec3, len(phy.TriangleFaces))
 
 	for i, t := range phy.TriangleFaces {
 		a := prop.GetOrigin().Add(transformPhyVertex(nil, phy.Vertices[t.V1].Vec3()))
 		b := prop.GetOrigin().Add(transformPhyVertex(nil, phy.Vertices[t.V2].Vec3()))
 		c := prop.GetOrigin().Add(transformPhyVertex(nil, phy.Vertices[t.V3].Vec3()))
+
+		for _, mat := range angleMatrices {
+			a = mgl32.TransformCoordinate(a, mat)
+			b = mgl32.TransformCoordinate(b, mat)
+			c = mgl32.TransformCoordinate(c, mat)
+		}
 
 		out[i] = [3]mgl32.Vec3{a, b, c}
 	}
