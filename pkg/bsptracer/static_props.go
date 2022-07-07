@@ -30,7 +30,7 @@ func vectorITransform(in1 mgl32.Vec3, in2 mgl32.Mat3x4) (out mgl32.Vec3) {
 	return out
 }
 
-func transformPhyVertex(bone *mdl.Bone, vertex mgl32.Vec3) (out mgl32.Vec3) {
+func transformPhyVertex(bone *mdl.Bone, vertex mgl32.Vec3, orientation mgl32.Quat) (out mgl32.Vec3) {
 	out[0] = 1 / 0.0254 * vertex[0]
 	out[1] = 1 / 0.0254 * vertex[2]
 	out[2] = 1 / 0.0254 * -vertex[1]
@@ -42,7 +42,8 @@ func transformPhyVertex(bone *mdl.Bone, vertex mgl32.Vec3) (out mgl32.Vec3) {
 		out[1] = 1 / 0.0254 * -vertex[0]
 		out[2] = 1 / 0.0254 * -vertex[1]
 	}
-	return out
+
+	return orientation.Rotate(out)
 }
 
 func triangles(prop game.IStaticPropDataLump, phy *phy.Phy) [][3]mgl32.Vec3 {
@@ -50,24 +51,15 @@ func triangles(prop game.IStaticPropDataLump, phy *phy.Phy) [][3]mgl32.Vec3 {
 		return nil
 	}
 
-	angleMatrices := []mgl32.Mat4{
-		mgl32.Rotate3DX(prop.GetAngles()[0]).Mat4(),
-		mgl32.Rotate3DY(prop.GetAngles()[1]).Mat4(),
-		mgl32.Rotate3DZ(prop.GetAngles()[2]).Mat4(),
-	}
+	angles := prop.GetAngles()
+	orientation := mgl32.AnglesToQuat(mgl32.DegToRad(angles[0]), mgl32.DegToRad(angles[1]), mgl32.DegToRad(angles[2]), mgl32.YZX)
 
 	out := make([][3]mgl32.Vec3, len(phy.TriangleFaces))
 
 	for i, t := range phy.TriangleFaces {
-		a := prop.GetOrigin().Add(transformPhyVertex(nil, phy.Vertices[t.V1].Vec3()))
-		b := prop.GetOrigin().Add(transformPhyVertex(nil, phy.Vertices[t.V2].Vec3()))
-		c := prop.GetOrigin().Add(transformPhyVertex(nil, phy.Vertices[t.V3].Vec3()))
-
-		for _, mat := range angleMatrices {
-			a = mgl32.TransformCoordinate(a, mat)
-			b = mgl32.TransformCoordinate(b, mat)
-			c = mgl32.TransformCoordinate(c, mat)
-		}
+		a := prop.GetOrigin().Add(transformPhyVertex(nil, phy.Vertices[t.V1].Vec3(), orientation))
+		b := prop.GetOrigin().Add(transformPhyVertex(nil, phy.Vertices[t.V2].Vec3(), orientation))
+		c := prop.GetOrigin().Add(transformPhyVertex(nil, phy.Vertices[t.V3].Vec3(), orientation))
 
 		out[i] = [3]mgl32.Vec3{a, b, c}
 	}
