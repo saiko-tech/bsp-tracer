@@ -119,7 +119,7 @@ func TestMap_TraceRay_de_cache(t *testing.T) {
 				destination: mgl32.Vec3{138, 396, 1677},
 			},
 			want: out{
-				visible: true,
+				visible: false,
 				trace:   bsptracer.Trace{AllSolid: true, StartSolid: true, Fraction: 1, EndPos: mgl32.Vec3{138, 396, 1677}},
 			},
 		},

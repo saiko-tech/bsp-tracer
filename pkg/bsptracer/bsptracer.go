@@ -153,6 +153,16 @@ func (m Map) TraceRay(origin, destination mgl32.Vec3) *Trace {
 	return out
 }
 
+const (
+	SolidNone     = 0
+	SolidBSP      = 1
+	SolidBBox     = 2
+	SolidOBB      = 3
+	SolidOBBYaw   = 4
+	SolidCustom   = 5
+	SolidVPhysics = 6
+)
+
 func (m Map) rayCastNode(nodeIndex int32, startFraction, endFraction float32,
 	origin, destination mgl32.Vec3, out *Trace,
 ) {
@@ -185,14 +195,30 @@ func (m Map) rayCastNode(nodeIndex int32, startFraction, endFraction float32,
 			r := collision.RayCastResult{}
 
 			switch p.prop.GetSolid() {
-			case 2:
+			case SolidNone:
+				// nop
+
+			case SolidBSP:
+				// not implemented
+
+			case SolidCustom:
+				// not implemented
+
+			case SolidOBB:
+				// not implemented
+
+			case SolidOBBYaw:
+				// not implemented
+
+			case SolidVPhysics:
 				for _, t := range p.triangles {
 					r = collision.RayIntersectsTriangle(origin, destination, t)
 					if r.Hit {
 						break
 					}
 				}
-			case 1:
+
+			case SolidBBox:
 				r = collision.RayIntersectsAxisAlignedBoundingBox(origin, destination, p.min, p.max)
 			}
 
@@ -200,8 +226,6 @@ func (m Map) rayCastNode(nodeIndex int32, startFraction, endFraction float32,
 				out.Fraction = 0 // TODO: should not be 0, should be fraction of ray
 				return
 			}
-
-			// TODO: use bounding box if no phy and model is set up to fall back to bbox
 		}
 
 		// TODO: handle leaf displacements
