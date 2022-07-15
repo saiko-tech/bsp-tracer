@@ -10,7 +10,7 @@ Can be used to get more accurate visibility info between players than there is a
 - [x] Faces (basic map geometry)
 - [x] Brushes (walls / level shape)
 - [x] Static Props (boxes, barrels, etc.)
-  - [ ] Orientation / Angle (currently all props are placed at 0 degrees)
+  - [x] Orientation / Angle (currently all props are placed at 0 degrees)
 - [ ] Displacements (terrain bumps and slopes)
 - [ ] Entities ("dynamic" props - doors, vents, etc.)
 
