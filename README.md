@@ -5,6 +5,8 @@ BSP (Source Engine Map) Ray Tracer / Ray Caster Library.
 Allows to do static / out-of-engine visibility checks and ray casting on BSP map files.<br>
 Can be used to get more accurate visibility info between players than there is available in CS:GO demos/replays (.dem files).
 
+You may want to use this together with [csgo-centrifuge](https://github.com/saiko-tech/csgo-centrifuge) to get the correct map version to trace against per demo.
+
 ## Features
 
 - [x] Faces (basic map geometry)
