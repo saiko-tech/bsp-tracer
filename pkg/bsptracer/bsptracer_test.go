@@ -149,6 +149,12 @@ func TestLoadMap_de_cache_with_models(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestDisplacements_de_insertion(t *testing.T) {
+	// TODO
+	// from: -1899 -1421 -93
+	// to: -1254 -490 -127
+}
+
 func BenchmarkTraceBox(b *testing.B) {
 	csgoDir := csgoDir(b)
 
